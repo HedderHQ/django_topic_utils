@@ -8,8 +8,8 @@ import datetime
 import bson
 import pymongo
 import argparse
-
-
+import os
+import pathlib
 
 
 def get_symbol(symbol, collection_name, update_if_not_exist=True, year_since = None):
@@ -76,13 +76,15 @@ def update_all(continue_from = (None, None)):
         for sym in symbol_list:
             if collection_name == continue_from[0] and sym == continue_from[1]:
                 found = True
-            if found:    
-                print(datetime.datetime.now(), 'updating', sym, "from ", collection_name)
+            if found:
+                with open(os.path.join('.','continue_from'), 'w') as f:
+                    f.write(collection_name+','+sym)
+                #print(datetime.datetime.now(), 'updating', sym, "from ", collection_name)
                 update_pipeline(sym, collection_name)
-                print(datetime.datetime.now(), 'updated', sym, "from ", collection_name)
+                #print(datetime.datetime.now(), 'updated', sym, "from ", collection_name)
 
 def test_random(n=30, year_to_start =2018):
-    import numpy as np
+   
     for collection_name in ["NYSE", "NASDAQ"]:
         
         symbol_list = client[db][collection_name].distinct('symbol')
@@ -103,6 +105,8 @@ def cmdline_args():
                    help="desc")
     # p.add_argument("required_int", type=int,
     #                help="req number")
+    p.add_argument("--continue_from", default=None,
+                    help="enable to use dev mode parameters, masking other manual inputs")
     p.add_argument("--dev_mode", action="store_true", default=False,
                     help="enable to use dev mode parameters, masking other manual inputs")
     p.add_argument("--test", action="store_true", default=False,
@@ -117,24 +121,53 @@ def cmdline_args():
     return(p.parse_args())
 
 if __name__ == "__main__":
+    print('start checking at pwd=', os.getcwd())
     args = cmdline_args()
     print (args)
     
+            
     
     if args.dev_mode:
+        print('dev mode')
         mdb_internal_ip = "localhost"
         api_base_url = 'localhost:9001'
     else:
+        print('production mode')
         mdb_internal_ip = args.mdb_internal_ip
         api_base_url = args.api_base_url
     CONNECTION_STRING = f"mongodb://{mdb_internal_ip}:27017/?directConnection=true&ssl=false"
+    print(CONNECTION_STRING)
     client = pymongo.MongoClient(CONNECTION_STRING)
+    print(client.list_database_names())
     db = 'transcript-dev'
+    
     if args.test:
         
         test_random(10)
     else:
-        update_all()
+        if args.continue_from is None:
+            
+            if pathlib.Path(os.path.join('.', 'continue_from')).exists():
+                try:
+                    with open('continue_from', 'r') as f:
+                        continue_from = tuple(f.readlines()[-1].split(','))
+                except KeyboardInterrupt:
+                    pass
+                except:
+                    # remove continue_from
+                    import shutil
+                    shutil.move(os.path.join('.', 'continue_from'),os.path.join('.', 'continue_from.errbak'))
+                    raise
+            else:
+                continue_from = (None, None)
+        else:
+            
+            temp = args.continue_from.split(',')
+            continue_from = (temp[0].strip(), temp[1].strip())
+            
+        update_all(continue_from = continue_from)
+        import os
+        os.remove(os.path.join('.', 'continue_from'))
     #update_all(continue_from = ("NASDAQ","WKME") )
     #update_pipeline('AAPL', "NASDAQ")
 """
